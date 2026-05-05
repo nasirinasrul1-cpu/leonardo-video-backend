@@ -11,6 +11,12 @@ const PORT = process.env.PORT || 3001;
 const API_KEY = process.env.LEONARDO_API_KEY;
 const BASE_URL = "https://cloud.leonardo.ai/api/rest";
 
+function getLeonardoApiKey(req) {
+  const bodyKey = req.body?.apiKey;
+  const headerKey = req.headers["x-leonardo-api-key"];
+  return (bodyKey || headerKey || API_KEY || "").trim();
+}
+
 app.use(cors());
 app.use(express.json({ limit: "25mb" }));
 
@@ -135,11 +141,13 @@ app.post(
   ]),
   async (req, res) => {
     try {
-      if (!API_KEY) {
-        return res.status(500).json({
-          error: "LEONARDO_API_KEY belum ada di file .env",
-        });
-      }
+      const selectedApiKey = getLeonardoApiKey(req);
+
+if (!selectedApiKey) {
+  return res.status(400).json({
+    error: "Silakan login akun Leonardo dulu.",
+  });
+}
 
       const payload = JSON.parse(req.body.payload || "{}");
 
@@ -308,7 +316,13 @@ app.listen(PORT, () => {
   console.log(`Backend aktif di http://localhost:${PORT}`);
 });app.get("/api/leonardo/generation/:id", async (req, res) => {
   try {
-    if (!API_KEY) {
+    const selectedApiKey = getLeonardoApiKey(req);
+
+if (!selectedApiKey) {
+  return res.status(400).json({
+    error: "Silakan login akun Leonardo dulu.",
+  });
+}
       return res.status(500).json({
         error: "LEONARDO_API_KEY belum ada di file .env",
       });
@@ -320,7 +334,7 @@ app.listen(PORT, () => {
       method: "GET",
       headers: {
         accept: "application/json",
-        authorization: `Bearer ${API_KEY}`,
+        authorization: `Bearer ${selectedApiKey}`,
       },
     });
 
