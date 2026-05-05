@@ -231,6 +231,78 @@ app.post(
     }
   }
 );
+app.post("/api/leonardo/account", async (req, res) => {
+  try {
+    const { apiKey } = req.body || {};
+
+    if (!apiKey) {
+      return res.status(400).json({
+        ok: false,
+        error: "API Key Leonardo wajib diisi."
+      });
+    }
+
+    const response = await fetch("https://cloud.leonardo.ai/api/rest/v1/me", {
+      method: "GET",
+      headers: {
+        accept: "application/json",
+        authorization: `Bearer ${apiKey}`
+      }
+    });
+
+    let data = null;
+
+    try {
+      data = await response.json();
+    } catch (e) {
+      data = null;
+    }
+
+    if (!response.ok) {
+      return res.status(response.status).json({
+        ok: false,
+        error: "API Key tidak valid atau akun Leonardo tidak bisa dibaca.",
+        leonardoResponse: data
+      });
+    }
+
+    const details = Array.isArray(data?.user_details)
+      ? data.user_details[0]
+      : data?.user_details || data;
+
+    const user = details?.user || data?.user || {};
+
+    const balance =
+      details?.apiCreditBalance ??
+      details?.api_credit_balance ??
+      details?.apiPlanTokenBalance ??
+      details?.api_plan_token_balance ??
+      details?.subscription_tokens ??
+      details?.subscriptionTokens ??
+      details?.apiTokens ??
+      details?.api_tokens ??
+      details?.balance ??
+      details?.creditBalance ??
+      null;
+
+    return res.json({
+      ok: true,
+      message: "Akun Leonardo berhasil dicek.",
+      account: {
+        userId: user?.id || details?.userId || details?.id || null,
+        username: user?.username || user?.name || details?.username || "Leonardo User",
+        email: user?.email || details?.email || null,
+        balance: balance,
+        raw: details
+      }
+    });
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      error: error.message || "Gagal cek akun Leonardo."
+    });
+  }
+});
 
 app.listen(PORT, () => {
   console.log(`Backend aktif di http://localhost:${PORT}`);
