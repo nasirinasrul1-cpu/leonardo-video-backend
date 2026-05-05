@@ -11,14 +11,23 @@ const PORT = process.env.PORT || 3001;
 const API_KEY = process.env.LEONARDO_API_KEY;
 const BASE_URL = "https://cloud.leonardo.ai/api/rest";
 
-function getLeonardoApiKey(req) {
-  const bodyKey = req.body?.apiKey;
-  const headerKey = req.headers["x-leonardo-api-key"];
-  return (bodyKey || headerKey || API_KEY || "").trim();
-}
-
 app.use(cors());
 app.use(express.json({ limit: "25mb" }));
+
+function getLeonardoApiKey(req) {
+  const bodyKey = req.body?.apiKey;
+  const formKey = req.body?.apiKey;
+  const headerKey = req.headers["x-leonardo-api-key"];
+  return (bodyKey || formKey || headerKey || API_KEY || "").trim();
+}
+
+async function readJson(response) {
+  try {
+    return await response.json();
+  } catch (error) {
+    return null;
+  }
+}
 
 function getExtension(file) {
   const name = file.originalname || "";
@@ -31,54 +40,73 @@ function getExtension(file) {
   throw new Error("Format gambar harus jpg, jpeg, png, atau webp.");
 }
 
-async function readJson(response) {
-  const text = await response.text();
-
-  try {
-    return JSON.parse(text);
-  } catch {
-    return { raw: text };
-  }
+function extractGenerationId(data) {
+  return (
+    data?.sdGenerationJob?.generationId ||
+    data?.motionSvdGenerationJob?.generationId ||
+    data?.generationId ||
+    data?.id ||
+    data?.data?.generationId ||
+    data?.data?.id ||
+    null
+  );
 }
 
-function getUploadData(data) {
-  const item = data.uploadInitImage || data.init_image || data;
-
-  const id = item.id;
-  const url = item.url;
-  let fields = item.fields || {};
-
-  if (typeof fields === "string") {
-    fields = JSON.parse(fields);
-  }
-
-  if (!id || !url) {
-    throw new Error("Response upload init image tidak terbaca: " + JSON.stringify(data));
-  }
-
-  return { id, url, fields };
-}
-
-async function uploadImageToLeonardo(file) {
+async function uploadImageToLeonardo(file, apiKey) {
   const extension = getExtension(file);
 
   const initResponse = await fetch(`${BASE_URL}/v1/init-image`, {
     method: "POST",
     headers: {
       accept: "application/json",
-      authorization: `Bearer ${API_KEY}`,
       "content-type": "application/json",
+      authorization: `Bearer ${apiKey}`,
     },
-    body: JSON.stringify({ extension }),
+    body: JSON.stringify({
+      extension,
+    }),
   });
 
   const initData = await readJson(initResponse);
 
   if (!initResponse.ok) {
-    throw new Error("Upload init image gagal: " + JSON.stringify(initData));
+    throw new Error(
+      initData?.error ||
+        initData?.message ||
+        "Gagal membuat upload URL Leonardo."
+    );
   }
 
-  const { id, url, fields } = getUploadData(initData);
+  const uploadInitImage =
+    initData?.uploadInitImage ||
+    initData?.initImage ||
+    initData?.data ||
+    initData;
+
+  const fieldsRaw =
+    uploadInitImage?.fields ||
+    uploadInitImage?.formFields ||
+    uploadInitImage?.uploadFields;
+
+  const url =
+    uploadInitImage?.url ||
+    uploadInitImage?.uploadUrl ||
+    uploadInitImage?.upload_url;
+
+  const imageId =
+    uploadInitImage?.id ||
+    uploadInitImage?.imageId ||
+    uploadInitImage?.initImageId ||
+    uploadInitImage?.init_image_id;
+
+  if (!url || !imageId) {
+    throw new Error("Response upload Leonardo tidak lengkap.");
+  }
+
+  const fields =
+    typeof fieldsRaw === "string"
+      ? JSON.parse(fieldsRaw)
+      : fieldsRaw || {};
 
   const formData = new FormData();
 
@@ -98,179 +126,46 @@ async function uploadImageToLeonardo(file) {
   });
 
   if (!uploadResponse.ok) {
-    const errorText = await uploadResponse.text();
-    throw new Error("Upload gambar ke storage Leonardo gagal: " + errorText);
+    throw new Error("Gagal upload gambar ke Leonardo.");
   }
 
-  return id;
-}
-
-function getVideoSize(ratio, resolution) {
-  const res = String(resolution || "1080p").toLowerCase();
-
-  if (ratio === "16:9") {
-    if (res.includes("720")) return { width: 1280, height: 720, resolutionMode: "RESOLUTION_720" };
-    return { width: 1920, height: 1080, resolutionMode: "RESOLUTION_1080" };
-  }
-
-  if (ratio === "1:1") {
-    if (res.includes("720")) return { width: 720, height: 720, resolutionMode: "RESOLUTION_720" };
-    return { width: 1080, height: 1080, resolutionMode: "RESOLUTION_1080" };
-  }
-
-  if (res.includes("720")) {
-    return { width: 720, height: 1280, resolutionMode: "RESOLUTION_720" };
-  }
-
-  return { width: 1080, height: 1920, resolutionMode: "RESOLUTION_1080" };
+  return imageId;
 }
 
 app.get("/", (req, res) => {
-  res.json({
+  return res.json({
     ok: true,
     message: "Backend AI Creator Squad aktif",
-    apiKeyStatus: API_KEY ? "API key terbaca" : "API key belum terbaca",
+    apiKeyStatus: API_KEY ? "API key terbaca" : "API key belum ada",
   });
 });
 
-app.post(
-  "/api/leonardo/video",
-  upload.fields([
-    { name: "startFrame", maxCount: 1 },
-    { name: "endFrame", maxCount: 1 },
-  ]),
-  async (req, res) => {
-    try {
-      const selectedApiKey = getLeonardoApiKey(req);
-
-if (!selectedApiKey) {
-  return res.status(400).json({
-    error: "Silakan login akun Leonardo dulu.",
-  });
-}
-
-      const payload = JSON.parse(req.body.payload || "{}");
-
-      const startFile = req.files?.startFrame?.[0];
-      const endFile = req.files?.endFrame?.[0];
-
-      if (!payload.prompt || !payload.prompt.trim()) {
-        return res.status(400).json({
-          error: "Prompt masih kosong.",
-        });
-      }
-
-      if (!startFile) {
-        return res.status(400).json({
-          error: "Start frame wajib diupload.",
-        });
-      }
-
-      const startImageId = await uploadImageToLeonardo(startFile);
-
-      let endImageId = null;
-
-      if (payload.useEndFrame && endFile) {
-        endImageId = await uploadImageToLeonardo(endFile);
-      }
-
-      const { width, height, resolutionMode } = getVideoSize(
-        payload.ratio,
-        payload.resolution
-      );
-
-      const body = {
-        prompt: payload.prompt,
-        imageId: startImageId,
-        imageType: "UPLOADED",
-        model: payload.model || "VEO3_1",
-        resolution: resolutionMode,
-        duration: Number(payload.duration || 8),
-        height,
-        width,
-        isPublic: false,
-      };
-
-      if (payload.negativePrompt && payload.negativePrompt.trim()) {
-        body.negativePrompt = payload.negativePrompt;
-      }
-
-      if (payload.useEndFrame && endImageId) {
-        body.endFrameImage = {
-          id: endImageId,
-          type: "UPLOADED",
-        };
-      }
-
-      const videoResponse = await fetch(`${BASE_URL}/v1/generations-image-to-video`, {
-        method: "POST",
-        headers: {
-          accept: "application/json",
-          authorization: `Bearer ${API_KEY}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify(body),
-      });
-
-      const videoData = await readJson(videoResponse);
-
-      if (!videoResponse.ok) {
-        return res.status(videoResponse.status).json({
-          error: "Generate video Leonardo gagal.",
-          leonardoResponse: videoData,
-          sentBody: body,
-        });
-      }
-
-      return res.json({
-        ok: true,
-        message: "Request video berhasil dikirim ke Leonardo.",
-        startImageId,
-        endImageId,
-        sentBody: body,
-        leonardoResponse: videoData,
-      });
-    } catch (error) {
-      console.error(error);
-
-      return res.status(500).json({
-        error: error.message || "Server error",
-      });
-    }
-  }
-);
 app.post("/api/leonardo/account", async (req, res) => {
   try {
-    const { apiKey } = req.body || {};
+    const apiKey = getLeonardoApiKey(req);
 
     if (!apiKey) {
       return res.status(400).json({
         ok: false,
-        error: "API Key Leonardo wajib diisi."
+        error: "API Key Leonardo wajib diisi.",
       });
     }
 
-    const response = await fetch("https://cloud.leonardo.ai/api/rest/v1/me", {
+    const response = await fetch(`${BASE_URL}/v1/me`, {
       method: "GET",
       headers: {
         accept: "application/json",
-        authorization: `Bearer ${apiKey}`
-      }
+        authorization: `Bearer ${apiKey}`,
+      },
     });
 
-    let data = null;
-
-    try {
-      data = await response.json();
-    } catch (e) {
-      data = null;
-    }
+    const data = await readJson(response);
 
     if (!response.ok) {
       return res.status(response.status).json({
         ok: false,
         error: "API Key tidak valid atau akun Leonardo tidak bisa dibaca.",
-        leonardoResponse: data
+        leonardoResponse: data,
       });
     }
 
@@ -291,6 +186,8 @@ app.post("/api/leonardo/account", async (req, res) => {
       details?.api_tokens ??
       details?.balance ??
       details?.creditBalance ??
+      user?.apiCreditBalance ??
+      user?.api_credit_balance ??
       null;
 
     return res.json({
@@ -298,33 +195,133 @@ app.post("/api/leonardo/account", async (req, res) => {
       message: "Akun Leonardo berhasil dicek.",
       account: {
         userId: user?.id || details?.userId || details?.id || null,
-        username: user?.username || user?.name || details?.username || "Leonardo User",
+        username:
+          user?.username ||
+          user?.name ||
+          details?.username ||
+          details?.name ||
+          "Leonardo User",
         email: user?.email || details?.email || null,
-        balance: balance,
-        raw: details
-      }
+        balance,
+        raw: details,
+      },
     });
   } catch (error) {
     return res.status(500).json({
       ok: false,
-      error: error.message || "Gagal cek akun Leonardo."
+      error: error.message || "Gagal cek akun Leonardo.",
     });
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Backend aktif di http://localhost:${PORT}`);
-});app.get("/api/leonardo/generation/:id", async (req, res) => {
+app.post(
+  "/api/leonardo/video",
+  upload.fields([
+    { name: "startFrame", maxCount: 1 },
+    { name: "endFrame", maxCount: 1 },
+  ]),
+  async (req, res) => {
+    try {
+      const selectedApiKey = getLeonardoApiKey(req);
+
+      if (!selectedApiKey) {
+        return res.status(400).json({
+          error: "Silakan login akun Leonardo dulu.",
+        });
+      }
+
+      const payloadRaw = req.body?.payload;
+
+      if (!payloadRaw) {
+        return res.status(400).json({
+          error: "Payload kosong.",
+        });
+      }
+
+      let payload;
+
+      try {
+        payload = JSON.parse(payloadRaw);
+      } catch (error) {
+        return res.status(400).json({
+          error: "Payload tidak valid.",
+        });
+      }
+
+      const startFrame = req.files?.startFrame?.[0];
+      const endFrame = req.files?.endFrame?.[0];
+
+      if (!startFrame) {
+        return res.status(400).json({
+          error: "Start frame wajib diupload.",
+        });
+      }
+
+      const startImageId = await uploadImageToLeonardo(
+        startFrame,
+        selectedApiKey
+      );
+
+      let endImageId = null;
+
+      if (endFrame) {
+        endImageId = await uploadImageToLeonardo(endFrame, selectedApiKey);
+      }
+
+      const videoBody = {
+        ...payload,
+        imageId: startImageId,
+      };
+
+      if (endImageId) {
+        videoBody.endImageId = endImageId;
+      }
+
+      const videoResponse = await fetch(`${BASE_URL}/v1/generations-motion-svd`, {
+        method: "POST",
+        headers: {
+          accept: "application/json",
+          "content-type": "application/json",
+          authorization: `Bearer ${selectedApiKey}`,
+        },
+        body: JSON.stringify(videoBody),
+      });
+
+      const videoData = await readJson(videoResponse);
+
+      if (!videoResponse.ok) {
+        return res.status(videoResponse.status).json({
+          error: "Gagal membuat video Leonardo.",
+          sentBody: videoBody,
+          leonardoResponse: videoData,
+        });
+      }
+
+      const generationId = extractGenerationId(videoData);
+
+      return res.json({
+        ok: true,
+        generationId,
+        startImageId,
+        endImageId,
+        sentBody: videoBody,
+        leonardoResponse: videoData,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        error: error.message || "Server error",
+      });
+    }
+  }
+);
+
+app.get("/api/leonardo/generation/:id", async (req, res) => {
   try {
     const selectedApiKey = getLeonardoApiKey(req);
 
-if (!selectedApiKey) {
-  return res.status(400).json({
-    error: "Silakan login akun Leonardo dulu.",
-  });
-}
-      return res.status(500).json({
-        error: "LEONARDO_API_KEY belum ada di file .env",
+    if (!selectedApiKey) {
+      return res.status(400).json({
+        error: "Silakan login akun Leonardo dulu.",
       });
     }
 
@@ -358,3 +355,11 @@ if (!selectedApiKey) {
     });
   }
 });
+
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`Backend aktif di http://localhost:${PORT}`);
+  });
+}
+
+module.exports = app;
