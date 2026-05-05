@@ -7,7 +7,6 @@ const multer = require("multer");
 const app = express();
 const upload = multer({ storage: multer.memoryStorage() });
 
-const PORT = process.env.PORT || 3001;
 const API_KEY = process.env.LEONARDO_API_KEY;
 const BASE_URL = "https://cloud.leonardo.ai/api/rest";
 
@@ -18,9 +17,7 @@ function getExtension(file) {
   const name = file.originalname || "";
   const ext = name.split(".").pop().toLowerCase();
 
-  if (["jpg", "jpeg", "png", "webp"].includes(ext)) {
-    return ext;
-  }
+  if (["jpg", "jpeg", "png", "webp"].includes(ext)) return ext;
 
   throw new Error("Format gambar harus jpg, jpeg, png, atau webp.");
 }
@@ -37,14 +34,12 @@ async function readJson(response) {
 
 function getUploadData(data) {
   const item = data.uploadInitImage || data.init_image || data;
-
   const id = item.id;
   const url = item.url;
+
   let fields = item.fields || {};
 
-  if (typeof fields === "string") {
-    fields = JSON.parse(fields);
-  }
+  if (typeof fields === "string") fields = JSON.parse(fields);
 
   if (!id || !url) {
     throw new Error("Response upload init image tidak terbaca: " + JSON.stringify(data));
@@ -137,25 +132,20 @@ app.post(
     try {
       if (!API_KEY) {
         return res.status(500).json({
-          error: "LEONARDO_API_KEY belum ada di file .env",
+          error: "LEONARDO_API_KEY belum ada di Environment Variables.",
         });
       }
 
       const payload = JSON.parse(req.body.payload || "{}");
-
       const startFile = req.files?.startFrame?.[0];
       const endFile = req.files?.endFrame?.[0];
 
       if (!payload.prompt || !payload.prompt.trim()) {
-        return res.status(400).json({
-          error: "Prompt masih kosong.",
-        });
+        return res.status(400).json({ error: "Prompt masih kosong." });
       }
 
       if (!startFile) {
-        return res.status(400).json({
-          error: "Start frame wajib diupload.",
-        });
+        return res.status(400).json({ error: "Start frame wajib diupload." });
       }
 
       const startImageId = await uploadImageToLeonardo(startFile);
@@ -166,10 +156,7 @@ app.post(
         endImageId = await uploadImageToLeonardo(endFile);
       }
 
-      const { width, height, resolutionMode } = getVideoSize(
-        payload.ratio,
-        payload.resolution
-      );
+      const { width, height, resolutionMode } = getVideoSize(payload.ratio, payload.resolution);
 
       const body = {
         prompt: payload.prompt,
@@ -224,21 +211,16 @@ app.post(
       });
     } catch (error) {
       console.error(error);
-
-      return res.status(500).json({
-        error: error.message || "Server error",
-      });
+      return res.status(500).json({ error: error.message || "Server error" });
     }
   }
 );
 
-app.listen(PORT, () => {
-  console.log(`Backend aktif di http://localhost:${PORT}`);
-});app.get("/api/leonardo/generation/:id", async (req, res) => {
+app.get("/api/leonardo/generation/:id", async (req, res) => {
   try {
     if (!API_KEY) {
       return res.status(500).json({
-        error: "LEONARDO_API_KEY belum ada di file .env",
+        error: "LEONARDO_API_KEY belum ada di Environment Variables.",
       });
     }
 
@@ -267,8 +249,8 @@ app.listen(PORT, () => {
       leonardoResponse: data,
     });
   } catch (error) {
-    return res.status(500).json({
-      error: error.message || "Server error",
-    });
+    return res.status(500).json({ error: error.message || "Server error" });
   }
 });
+
+module.exports = app;
