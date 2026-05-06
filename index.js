@@ -16,15 +16,14 @@ app.use(express.json({ limit: "25mb" }));
 
 function getLeonardoApiKey(req) {
   const bodyKey = req.body?.apiKey;
-  const formKey = req.body?.apiKey;
   const headerKey = req.headers["x-leonardo-api-key"];
-  return (bodyKey || formKey || headerKey || API_KEY || "").trim();
+  return (bodyKey || headerKey || API_KEY || "").trim();
 }
 
 async function readJson(response) {
   try {
     return await response.json();
-  } catch (error) {
+  } catch {
     return null;
   }
 }
@@ -42,8 +41,8 @@ function getExtension(file) {
 
 function extractGenerationId(data) {
   return (
-    data?.sdGenerationJob?.generationId ||
     data?.motionSvdGenerationJob?.generationId ||
+    data?.sdGenerationJob?.generationId ||
     data?.generationId ||
     data?.id ||
     data?.data?.generationId ||
@@ -176,14 +175,14 @@ app.post("/api/leonardo/account", async (req, res) => {
     const user = details?.user || data?.user || {};
 
     const balance =
-      details?.apiCreditBalance ??
-      details?.api_credit_balance ??
+      details?.subscriptionTokens ??
+      details?.apiPaidTokens ??
+      details?.apiSubscriptionTokens ??
       details?.apiPlanTokenBalance ??
       details?.api_plan_token_balance ??
-      details?.subscription_tokens ??
-      details?.subscriptionTokens ??
-      details?.apiTokens ??
-      details?.api_tokens ??
+      details?.apiCreditBalance ??
+      details?.api_credit_balance ??
+      details?.paidTokens ??
       details?.balance ??
       details?.creditBalance ??
       user?.apiCreditBalance ??
@@ -242,14 +241,13 @@ app.post(
 
       try {
         payload = JSON.parse(payloadRaw);
-      } catch (error) {
+      } catch {
         return res.status(400).json({
           error: "Payload tidak valid.",
         });
       }
 
       const startFrame = req.files?.startFrame?.[0];
-      const endFrame = req.files?.endFrame?.[0];
 
       if (!startFrame) {
         return res.status(400).json({
@@ -262,29 +260,18 @@ app.post(
         selectedApiKey
       );
 
-      let endImageId = null;
+      const motionStrengthNumber = Number(payload.motionStrength || 5);
+      const safeMotionStrength =
+        Number.isFinite(motionStrengthNumber) && motionStrengthNumber > 0
+          ? motionStrengthNumber
+          : 5;
 
-      if (endFrame) {
-        endImageId = await uploadImageToLeonardo(endFrame, selectedApiKey);
-      }
-
-  const videoBody = {
-  model: payload.model,
-  prompt: payload.prompt,
-  imageId: startImageId,
-};
-
-if (payload.motionStrength) {
-  videoBody.motionStrength = payload.motionStrength;
-}
-
-if (payload.seed) {
-  videoBody.seed = payload.seed;
-}
-
-if (endImageId) {
-  videoBody.endImageId = endImageId;
-}
+      const videoBody = {
+        imageId: startImageId,
+        isInitImage: true,
+        isPublic: false,
+        motionStrength: safeMotionStrength,
+      };
 
       const videoResponse = await fetch(`${BASE_URL}/v1/generations-motion-svd`, {
         method: "POST",
@@ -301,7 +288,9 @@ if (endImageId) {
       if (!videoResponse.ok) {
         return res.status(videoResponse.status).json({
           error: "Gagal membuat video Leonardo.",
+          note: "Endpoint Motion SVD Leonardo hanya menerima parameter motion image seperti imageId, isInitImage, isPublic, dan motionStrength. Prompt/model/negativePrompt tidak dikirim.",
           sentBody: videoBody,
+          frontendPayload: payload,
           leonardoResponse: videoData,
         });
       }
@@ -312,8 +301,8 @@ if (endImageId) {
         ok: true,
         generationId,
         startImageId,
-        endImageId,
         sentBody: videoBody,
+        frontendPayload: payload,
         leonardoResponse: videoData,
       });
     } catch (error) {
