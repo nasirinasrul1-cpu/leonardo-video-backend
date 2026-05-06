@@ -268,10 +268,9 @@ app.post(
         endImageId = await uploadImageToLeonardo(endFrame, selectedApiKey);
       }
 
-      const videoBody = {
+  const videoBody = {
   model: payload.model,
   prompt: payload.prompt,
-  negativePrompt: payload.negativePrompt || "",
   imageId: startImageId,
 };
 
