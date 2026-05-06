@@ -269,13 +269,23 @@ app.post(
       }
 
       const videoBody = {
-        ...payload,
-        imageId: startImageId,
-      };
+  model: payload.model,
+  prompt: payload.prompt,
+  negativePrompt: payload.negativePrompt || "",
+  imageId: startImageId,
+};
 
-      if (endImageId) {
-        videoBody.endImageId = endImageId;
-      }
+if (payload.motionStrength) {
+  videoBody.motionStrength = payload.motionStrength;
+}
+
+if (payload.seed) {
+  videoBody.seed = payload.seed;
+}
+
+if (endImageId) {
+  videoBody.endImageId = endImageId;
+}
 
       const videoResponse = await fetch(`${BASE_URL}/v1/generations-motion-svd`, {
         method: "POST",
