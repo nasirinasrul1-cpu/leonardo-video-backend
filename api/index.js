@@ -28,7 +28,7 @@ app.use(
 
 app.use(express.json({ limit: "10mb" }));
 
-const JOB_STORE_DIR = path.join(__dirname, ".ai_creator_runtime");
+const JOB_STORE_DIR = process.env.VERCEL ? path.join("/tmp", "ai_creator_runtime") : path.join(__dirname, "_ai_creator_runtime");
 const JOB_STORE_FILE = path.join(JOB_STORE_DIR, "pending_image_jobs.json");
 
 function ensureJobStoreDir() {
