@@ -1494,6 +1494,5 @@ if (require.main === module) {
     console.log(`AI Creator Studio backend aktif di http://localhost:${PORT}`);
   });
 }
-}
 
 module.exports = app;
