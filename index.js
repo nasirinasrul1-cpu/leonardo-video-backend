@@ -962,7 +962,7 @@ app.get("/api/download-image", async (req, res, next) => {
     const filename = `leonardo-image-${Date.now()}.jpg`;
 
     const response = await axios.get(imageUrl, {
-      responseType: "arraybuffer",
+      responseType: stream,
       timeout: 120000,
     });
 
@@ -1003,7 +1003,7 @@ app.get("/api/download-file", async (req, res, next) => {
     }
 
     const response = await axios.get(fileUrl, {
-      responseType: "arraybuffer",
+      responseType: stream,
       timeout: 120000,
       maxRedirects: 5,
     });
@@ -1488,11 +1488,8 @@ app.use((error, req, res, next) => {
   });
 });
 
-if (require.main === module) {
-  if (require.main === module) {
-  app.listen(PORT, () => {
-    console.log(`AI Creator Studio backend aktif di http://localhost:${PORT}`);
-  });
-}
+app.listen(PORT, () => {
+  console.log(`AI Creator Studio backend aktif di http://localhost:${PORT}`);
+});
 
-module.exports = app;
+
