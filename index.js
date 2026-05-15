@@ -1488,6 +1488,10 @@ app.use((error, req, res, next) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`AI Creator Studio backend aktif di http://localhost:${PORT}`);
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`AI Creator Studio backend aktif di http://localhost:${PORT}`);
+  });
+}
+
+module.exports = app;
